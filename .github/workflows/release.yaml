@@ -1,0 +1,60 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - "main"
+    paths-ignore:
+      - '.github/**'
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Get version from version.go
+        id: package-version
+        run: |
+          VERSION=$(grep 'Version.*=.*"' version.go | cut -d'"' -f2)
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ghcr.io/${{ github.repository }}/echo-server:${{ env.VERSION }}
+          cache-from: type=gha,scope=echo-server
+          cache-to: type=gha,mode=max,scope=echo-server
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            BUILD_TIME=${{ github.event.head_commit.timestamp }}
+            COMMIT_SHA=${{ github.sha }}
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: Release ${{ env.VERSION }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
